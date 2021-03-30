@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta content="stuff, to, help, search, engines, not" name="keywords" />
+    <meta content="What this page is about." name="description" />
+    <meta content="Display Webcam Stream" name="title" />
+    <title>Display Webcam Stream</title>
+
+    <style>
+      #container {
+        margin: 0px auto;
+        width: 500px;
+        height: 375px;
+        border: 10px #333 solid;
+      }
+      #videoElement {
+        width: 500px;
+        height: 375px;
+        background-color: #666;
+        visibility: hidden;
+      }
+      #canvas {
+        background-color: #666;
+        position: absolute;
+        top: 0px;
+        left: 0px;
+      }
+    </style>
+    <script type="text/javascript" src="./pathfinding-browser.min.js"></script>
+  </head>
+
+  <body>
+    <video autoplay="true" id="videoElement"></video>
+    <canvas
+      id="canvas"
+      onClick="/*frameSelected=!frameSelected;*/frameSelected=true;"
+    ></canvas>
+    <canvas
+      id="original"
+      onClick="/*frameSelected=!frameSelected;*/frameSelected=true;"
+    ></canvas>
+    <button onclick="setting='start'">Set Start</button>
+    <button onclick="setting='end'">Set End</button>
+
+    <script>
+      var frameSelected = false;
+      var mouseX, mouseY, mouseClicked;
+      var grid;
+      var startPos,
+        endPos,
+        startTrackCol = [10000, 10000, 10000, 0],
+        endTrackCol = [10000, 10000, 10000, 10000];
+      var setting = "";
+      var path = [];
+      var video = document.querySelector("#videoElement");
+
+      var canvas = document.getElementById("canvas");
+      var unFiltered = document.getElementById("original");
+
+      canvas.onmousemove = function (e) {
+        mouseX = e.pageX;
+        mouseY = e.pageY;
+      };
+      canvas.addEventListener("click", (e) => {
+        mouseClicked = true;
+      });
+      var ctx = canvas.getContext("2d");
+      var unfilteredctx = unFiltered.getContext("2d");
+
+      let pixelData;
+      if (navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices
+          .getUserMedia({ video: true })
+          .then(function (stream) {
+            video.srcObject = stream;
+            //console.log(stream.getVideoTracks()[0].getSettings().height) + "px";
+            //canvas.style.width =
+            //  stream.getVideoTracks()[0].getSettings().width + "px";
+            //canvas.style.height = stream
+            //  .getVideoTracks()[0]
+            //  .getSettings().height;
+          })
+          .catch(function (err0r) {
+            console.log("Something went wrong!");
+          });
+      }
+
+      function getRGBA(img, x, y) {
+        return [
+          img.data[(y * img.width + x) * 4] || 0, //r
+          img.data[(y * img.width + x) * 4 + 1] || 0, //g
+          img.data[(y * img.width + x) * 4 + 2] || 0, //b
+          img.data[(y * img.width + x) * 4 + 3] || 0, //a
+        ];
+      }
+
+      function isBlob(x, y, amt, col, unfilteredpxlData) {
+        for (var i = -amt; i < amt; i++) {
+          for (var j = -amt; j < amt; j++) {
+            if (
+              !(
+                Math.abs(getRGBA(unfilteredpxlData, x + i, y + j)[0] - col[0]) <
+                  30 &&
+                Math.abs(getRGBA(unfilteredpxlData, x + i, y + j)[1] - col[1]) <
+                  30 &&
+                Math.abs(getRGBA(unfilteredpxlData, x + i, y + j)[2] - col[2]) <
+                  30
+              )
+            ) {
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      var myVar = setInterval(intervalTimer, 1000);
+      function intervalTimer() {
+        ctx.width = video.getBoundingClientRect().width + "px";
+        ctx.height = video.getBoundingClientRect().height + "px";
+
+        grid = new PF.Grid(
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+
+        //if (!frameSelected) {
+        ctx.clearRect(
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+        ctx.drawImage(
+          video,
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+        //}
+
+        pixelData = ctx.getImageData(
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+
+        var unfilteredpxlData = unfilteredctx.getImageData(
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+
+        for (let i = 0; i < pixelData.data.length; i += 4) {
+          //console.log(pixelData.data[i + 1]);
+          if (
+            (pixelData.data[i] +
+              pixelData.data[i + 1] +
+              pixelData.data[i + 2]) /
+              3 >
+            100
+          ) {
+            pixelData.data[i] = 255;
+            pixelData.data[i + 1] = 255;
+            pixelData.data[i + 2] = 255;
+          } else if (
+            pixelData.data[i] < 60 &&
+            pixelData.data[i + 1] < 60 &&
+            pixelData.data[i + 2] < 60
+          ) {
+            pixelData.data[i] = 0;
+            pixelData.data[i + 1] = 0;
+            pixelData.data[i + 2] = 0;
+          }
+          pixelData.data[i + 3] = 255;
+        }
+
+        for (var i = 0; i < pixelData.height; i++) {
+          for (var j = 0; j < pixelData.width; j++) {
+            if (getRGBA(pixelData, i, j)[0] == 255) {
+              grid.setWalkableAt(j, i, true);
+            } else {
+              grid.setWalkableAt(j, i, false);
+            }
+
+            if (
+              /*Math.abs(getRGBA(unfilteredpxlData, i, j)[0] - startTrackCol[0]) <
+                30 &&
+              Math.abs(getRGBA(unfilteredpxlData, i, j)[1] - startTrackCol[1]) <
+                30 &&
+              Math.abs(getRGBA(unfilteredpxlData, i, j)[2] - startTrackCol[2]) <
+                30*/
+              isBlob(i, j, 4, startTrackCol, unfilteredpxlData)
+            ) {
+              pixelData.data[(j * pixelData.width + i) * 4] = 0;
+
+              startPos = [j, i];
+              grid.setWalkableAt(j, i, true);
+            }
+            if (
+              /*
+              Math.abs(getRGBA(unfilteredpxlData, i, j)[0] - endTrackCol[0]) <
+                30 &&
+              Math.abs(getRGBA(unfilteredpxlData, i, j)[1] - endTrackCol[1]) <
+                30 &&
+              Math.abs(getRGBA(unfilteredpxlData, i, j)[2] - endTrackCol[2]) <
+                30*/
+              isBlob(i, j, 4, endTrackCol, unfilteredpxlData)
+            ) {
+              pixelData.data[(j * pixelData.width + i) * 4] = 0;
+
+              endPos = [j, i];
+              grid.setWalkableAt(j, i, true);
+            }
+          }
+        }
+        try {
+          var finder = new PF.AStarFinder();
+
+          path = finder.findPath(
+            startPos[0],
+            startPos[1],
+            endPos[0],
+            endPos[1],
+            grid
+          );
+        } catch (error) {}
+
+        for (let i = 0; i < path.length; i++) {
+          var p = path[i];
+          pixelData.data[(p[0] * pixelData.width + p[1]) * 4] = 0;
+          pixelData.data[(p[0] * pixelData.width + p[1]) * 4 + 1] = 255;
+          pixelData.data[(p[0] * pixelData.width + p[1]) * 4 + 2] = 0;
+        }
+
+        //pixelData.data[(mouseX + mouseY * pixelData.width) / 4] = 0;
+        if (frameSelected) {
+          //BFS(mouseX, mouseY, 300, 300);
+          //ctx.putImageData(imageData, 1, 1);
+          if (mouseClicked) {
+            if (startPos == undefined && setting == "start") {
+              startPos = [mouseX, mouseY];
+              startTrackCol = getRGBA(unfilteredpxlData, mouseX, mouseY);
+            } else if (endPos == undefined && setting == "end") {
+              endPos = [mouseX, mouseY];
+              console.log(endPos);
+              endTrackCol = getRGBA(unfilteredpxlData, mouseX, mouseY);
+            }
+          }
+        }
+
+        ctx.clearRect(
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+        ctx.putImageData(pixelData, 0, 0);
+
+        unfilteredctx.clearRect(
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+        unfilteredctx.drawImage(
+          video,
+          0,
+          0,
+          video.getBoundingClientRect().width,
+          video.getBoundingClientRect().height
+        );
+        mouseClicked = false;
+      }
+
+      //var data = ctx.getImageData(0, 0, w, h).data;
+    </script>
+  </body>
+</html>
